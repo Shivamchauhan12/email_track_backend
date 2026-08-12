@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  campaigns Campaign[]
+}
+
+model Campaign {
+  id          Int               @id @default(autoincrement())
+  name        String
+  subject     String
+  bodyHtml    String            @db.Text
+  bodyText    String?           @db.Text
+  fromEmail   String
+  fromName    String
+  status      CampaignStatus    @default(DRAFT)
+  sentAt      DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  userId      Int
+  user        User              @relation(fields: [userId], references: [id])
+  contacts    CampaignContact[]
+  links       Link[]
+}
+
+model Contact {
+  id        Int               @id @default(autoincrement())
+  email     String
+  firstName String?
+  lastName  String?
+  company   String?
+  tags      String?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  campaigns CampaignContact[]
+
+  @@unique([email])
+}
+
+model CampaignContact {
+  id          Int       @id @default(autoincrement())
+  campaignId  Int
+  contactId   Int
+  trackingId  String    @unique @default(uuid())
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  openedAt    DateTime?
+  openCount   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact     Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  opens       EmailOpen[]
+  clicks      LinkClick[]
+
+  @@unique([campaignId, contactId])
+}
+
+model Link {
+  id         Int         @id @default(autoincrement())
+  campaignId Int
+  originalUrl String     @db.Text
+  trackingCode String    @unique @default(uuid())
+  clickCount Int         @default(0)
+  createdAt  DateTime    @default(now())
+  campaign   Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  clicks     LinkClick[]
+}
+
+model LinkClick {
+  id                Int             @id @default(autoincrement())
+  linkId            Int
+  campaignContactId Int
+  clickedAt         DateTime        @default(now())
+  ipAddress         String?
+  userAgent         String?
+  link              Link            @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  campaignContact   CampaignContact @relation(fields: [campaignContactId], references: [id], onDelete: Cascade)
+
+  @@unique([linkId, campaignContactId])
+}
+
+model EmailOpen {
+  id                Int             @id @default(autoincrement())
+  campaignContactId Int
+  openedAt          DateTime        @default(now())
+  ipAddress         String?
+  userAgent         String?
+  campaignContact   CampaignContact @relation(fields: [campaignContactId], references: [id], onDelete: Cascade)
+}
+
+enum CampaignStatus {
+  DRAFT
+  SENDING
+  SENT
+  SCHEDULED
+}
