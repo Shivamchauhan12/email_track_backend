@@ -125,7 +125,9 @@ const getCampaignAnalytics = async (req, res) => {
         count: o._count.id
       })),
       clicksByLink: clicksByLink.map(l => ({
+        id: l.id,
         url: l.originalUrl,
+        name: l.name || l.originalUrl,
         clicks: l._count.clicks
       })),
       engagement: {

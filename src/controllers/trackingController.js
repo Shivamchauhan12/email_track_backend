@@ -10,17 +10,51 @@ const TRANSPARENT_GIF = Buffer.from(
 const trackOpen = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // 1. Ignore HEAD requests (sent by security scanners/link checkers)
+    if (req.method === 'HEAD') {
+      res.writeHead(200, {
+        'Content-Type': 'image/gif',
+        'Content-Length': TRANSPARENT_GIF.length,
+        'Cache-Control': 'no-store, no-cache, must-revalidate, private, proxy-revalidate'
+      });
+      return res.end(TRANSPARENT_GIF);
+    }
+
     const { ip, userAgent } = getClientInfo(req);
 
-    console.log(`\ud83d\udce9 [Tracking] Email open request received for tracking ID: ${id}`);
+    console.log(`📩 [Tracking] Email open request received for tracking ID: ${id}`);
+
+    // 2. Ignore known bot/scanner User-Agents
+    const isBot = /bot|spider|crawler|preview|prefetch|slurp|facebookexternalhit|bingpreview/i.test(userAgent);
+    if (isBot) {
+      console.log(`🤖 [Tracking] Ignored bot/scanner open request for ID: ${id} (${userAgent})`);
+      res.writeHead(200, {
+        'Content-Type': 'image/gif',
+        'Content-Length': TRANSPARENT_GIF.length,
+        'Cache-Control': 'no-store, no-cache, must-revalidate, private, proxy-revalidate'
+      });
+      return res.end(TRANSPARENT_GIF);
+    }
 
     const campaignContact = await prisma.campaignContact.findUnique({
       where: { trackingId: id }
     });
 
     if (!campaignContact) {
-      console.warn(`\u26a0\ufe0f [Tracking] Tracking ID not found: ${id}`);
+      console.warn(`⚠️ [Tracking] Tracking ID not found: ${id}`);
       res.writeHead(404, {
+        'Content-Type': 'image/gif',
+        'Content-Length': TRANSPARENT_GIF.length,
+        'Cache-Control': 'no-store, no-cache, must-revalidate, private, proxy-revalidate'
+      });
+      return res.end(TRANSPARENT_GIF);
+    }
+
+    // 3. Ignore automatic mail server delivery pre-fetches (within 4 seconds of sending)
+    if (campaignContact.sentAt && (new Date() - new Date(campaignContact.sentAt)) < 4000) {
+      console.log(`⚠️ [Tracking] Ignored immediate delivery scan for contact ID: ${campaignContact.contactId}`);
+      res.writeHead(200, {
         'Content-Type': 'image/gif',
         'Content-Length': TRANSPARENT_GIF.length,
         'Cache-Control': 'no-store, no-cache, must-revalidate, private, proxy-revalidate'
@@ -46,7 +80,7 @@ const trackOpen = async (req, res) => {
       })
     ]);
 
-    console.log(`\u2705 [Tracking] Open recorded for contact ID: ${campaignContact.contactId}`);
+    console.log(`✅ [Tracking] Open recorded for contact ID: ${campaignContact.contactId}`);
 
     // Return transparent pixel
     res.writeHead(200, {
@@ -72,7 +106,7 @@ const trackClick = async (req, res) => {
     const { code } = req.params;
     const { ip, userAgent } = getClientInfo(req);
 
-    console.log(`\ud83d\uddb1\ufe0f [Tracking] Link click request received for code: ${code}`);
+    console.log(`🖱️ [Tracking] Link click request received for code: ${code}`);
 
     const link = await prisma.link.findUnique({
       where: { trackingCode: code }
@@ -98,10 +132,16 @@ const trackClick = async (req, res) => {
                 campaignContactId: campaignContact.id
               }
             },
-            update: { clickedAt: new Date(), ipAddress: ip, userAgent },
+            update: {
+              clickCount: { increment: 1 },
+              clickedAt: new Date(),
+              ipAddress: ip,
+              userAgent
+            },
             create: {
               linkId: link.id,
               campaignContactId: campaignContact.id,
+              clickCount: 1,
               ipAddress: ip,
               userAgent
             }

@@ -15,6 +15,11 @@ const transporter = nodemailer.createTransport({
   maxMessages: 100
 });
 
+const stripHtml = (html) => {
+  if (!html) return '';
+  return html.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+};
+
 const sendCampaignEmails = async (campaign) => {
   const baseUrl = process.env.APP_URL || 'http://localhost:5000';
   if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
@@ -22,8 +27,12 @@ const sendCampaignEmails = async (campaign) => {
   }
   let sentCount = 0;
   let errorCount = 0;
+  const totalContacts = campaign.contacts.length;
 
-  for (const cc of campaign.contacts) {
+  console.log(`🚀 [EmailService] Starting campaign send for ${totalContacts} contacts with anti-spam throttled intervals...`);
+
+  for (let i = 0; i < totalContacts; i++) {
+    const cc = campaign.contacts[i];
     try {
       // Generate personalized HTML with tracking
       let personalizedHtml = campaign.bodyHtml || '';
@@ -44,13 +53,22 @@ const sendCampaignEmails = async (campaign) => {
         personalizedHtml = injectTrackingPixel(personalizedHtml, trackingPixel);
       }
 
-      // Send email
+      // Plain text version (essential for anti-spam deliverability)
+      const plainTextContent = campaign.bodyText && campaign.bodyText.trim()
+        ? campaign.bodyText
+        : stripHtml(personalizedHtml);
+
+      // Send email with anti-spam headers
       await transporter.sendMail({
         from: `"${campaign.fromName || campaign.fromEmail}" <${campaign.fromEmail}>`,
         to: cc.contact.email,
         subject: campaign.subject,
         html: personalizedHtml,
-        text: campaign.bodyText || ''
+        text: plainTextContent,
+        headers: {
+          'X-Mailer': 'EmailTracker Engine',
+          'Precedence': 'bulk'
+        }
       });
 
       // Update sent status
@@ -60,11 +78,19 @@ const sendCampaignEmails = async (campaign) => {
       });
 
       sentCount++;
+      console.log(`✅ [EmailService] (${sentCount}/${totalContacts}) Email sent to ${cc.contact.email}`);
 
-      // Small delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 200));
+      // Anti-spam interval delay between messages (if not last contact)
+      if (i < totalContacts - 1) {
+        const baseInterval = parseInt(process.env.EMAIL_SEND_INTERVAL_MS) || 3000;
+        const randomJitter = Math.floor(Math.random() * 1500); // 0ms to 1500ms random delay
+        const delayMs = baseInterval + randomJitter;
+
+        console.log(`⏳ [Anti-Spam Throttling] Waiting ${(delayMs / 1000).toFixed(1)}s before sending next email...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
     } catch (error) {
-      console.error(`Failed to send to ${cc.contact.email}:`, error.message);
+      console.error(`❌ [EmailService] Failed to send to ${cc.contact.email}:`, error.message);
       errorCount++;
     }
   }
@@ -78,7 +104,7 @@ const sendCampaignEmails = async (campaign) => {
     }
   });
 
-  console.log(`Campaign ${campaign.id} completed. Sent: ${sentCount}, Errors: ${errorCount}`);
+  console.log(`🎉 [EmailService] Campaign ${campaign.id} completed. Sent: ${sentCount}, Errors: ${errorCount}`);
 };
 
 const sendTestEmail = async (to, campaign) => {

@@ -110,7 +110,7 @@ const getCampaign = async (req, res) => {
 
 const createCampaign = async (req, res) => {
   try {
-    const { name, subject, bodyHtml, bodyText, fromEmail, fromName, contactIds } = req.body;
+    const { name, subject, bodyHtml, bodyText, fromEmail, fromName, contactIds, customLinks } = req.body;
 
     if (!name || !subject || !bodyHtml || !fromEmail) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -125,6 +125,17 @@ const createCampaign = async (req, res) => {
         links.push(match[1]);
       }
     }
+
+    const getCustomName = (url) => {
+      if (!customLinks) return null;
+      if (Array.isArray(customLinks)) {
+        const found = customLinks.find(l => l.originalUrl === url || l.url === url);
+        return found && found.name ? found.name.trim() : null;
+      } else if (typeof customLinks === 'object') {
+        return customLinks[url] ? String(customLinks[url]).trim() : null;
+      }
+      return null;
+    };
 
     const campaign = await prisma.$transaction(async (tx) => {
       // Create campaign
@@ -141,12 +152,13 @@ const createCampaign = async (req, res) => {
         }
       });
 
-      // Create trackable links
+      // Create trackable links with optional custom names
       if (links.length > 0) {
         await tx.link.createMany({
           data: links.map(url => ({
             campaignId: newCampaign.id,
             originalUrl: url,
+            name: getCustomName(url),
             trackingCode: crypto.randomUUID()
           }))
         });
@@ -177,7 +189,18 @@ const createCampaign = async (req, res) => {
 const updateCampaign = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, subject, bodyHtml, bodyText, fromEmail, fromName, contactIds } = req.body;
+    const { name, subject, bodyHtml, bodyText, fromEmail, fromName, contactIds, customLinks } = req.body;
+
+    const getCustomName = (url) => {
+      if (!customLinks) return null;
+      if (Array.isArray(customLinks)) {
+        const found = customLinks.find(l => l.originalUrl === url || l.url === url);
+        return found && found.name ? found.name.trim() : null;
+      } else if (typeof customLinks === 'object') {
+        return customLinks[url] ? String(customLinks[url]).trim() : null;
+      }
+      return null;
+    };
 
     const campaign = await prisma.$transaction(async (tx) => {
       // Update campaign
@@ -202,6 +225,7 @@ const updateCampaign = async (req, res) => {
             data: links.map(url => ({
               campaignId: parseInt(id),
               originalUrl: url,
+              name: getCustomName(url),
               trackingCode: crypto.randomUUID()
             }))
           });

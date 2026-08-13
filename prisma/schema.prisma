@@ -68,20 +68,22 @@ model CampaignContact {
 }
 
 model Link {
-  id         Int         @id @default(autoincrement())
-  campaignId Int
-  originalUrl String     @db.Text
-  trackingCode String    @unique @default(uuid())
-  clickCount Int         @default(0)
-  createdAt  DateTime    @default(now())
-  campaign   Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  clicks     LinkClick[]
+  id           Int         @id @default(autoincrement())
+  campaignId   Int
+  originalUrl  String      @db.Text
+  name         String?
+  trackingCode String      @unique @default(uuid())
+  clickCount   Int         @default(0)
+  createdAt    DateTime    @default(now())
+  campaign     Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  clicks       LinkClick[]
 }
 
 model LinkClick {
   id                Int             @id @default(autoincrement())
   linkId            Int
   campaignContactId Int
+  clickCount        Int             @default(1)
   clickedAt         DateTime        @default(now())
   ipAddress         String?
   userAgent         String?
