@@ -1,8 +1,8 @@
 const nodemailer = require('nodemailer');
 const prisma = require('../config/database');
-const { generateTrackingPixel, replaceLinksWithTracking } = require('../utils/helpers');
+const { generateTrackingPixel, injectTrackingPixel, replaceLinksWithTracking } = require('../utils/helpers');
 
-const transporter = nodemailer.createTransporter({
+const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: parseInt(process.env.SMTP_PORT) || 587,
   secure: process.env.SMTP_SECURE === 'true',
@@ -17,13 +17,16 @@ const transporter = nodemailer.createTransporter({
 
 const sendCampaignEmails = async (campaign) => {
   const baseUrl = process.env.APP_URL || 'http://localhost:5000';
+  if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+    console.warn('⚠️ [Tracking Warning] APP_URL is set to localhost. External email clients (e.g. Gmail) cannot fetch images from localhost. Set APP_URL in .env to a public URL (e.g., ngrok or domain) for tracking to work!');
+  }
   let sentCount = 0;
   let errorCount = 0;
 
   for (const cc of campaign.contacts) {
     try {
       // Generate personalized HTML with tracking
-      let personalizedHtml = campaign.bodyHtml;
+      let personalizedHtml = campaign.bodyHtml || '';
 
       // Replace personalization tags
       personalizedHtml = personalizedHtml
@@ -32,12 +35,14 @@ const sendCampaignEmails = async (campaign) => {
         .replace(/{{email}}/g, cc.contact.email)
         .replace(/{{company}}/g, cc.contact.company || '');
 
-      // Replace links with tracking URLs
-      personalizedHtml = replaceLinksWithTracking(personalizedHtml, campaign.links, baseUrl);
+      // Replace links with tracking URLs (passing trackingId so clicks can link to contact)
+      personalizedHtml = replaceLinksWithTracking(personalizedHtml, campaign.links, baseUrl, cc.trackingId);
 
-      // Append tracking pixel at the end
-      const trackingPixel = generateTrackingPixel(cc.trackingId, baseUrl);
-      personalizedHtml += trackingPixel;
+      // Inject tracking pixel before </body> or </html> if present
+      if (cc.trackingId) {
+        const trackingPixel = generateTrackingPixel(cc.trackingId, baseUrl);
+        personalizedHtml = injectTrackingPixel(personalizedHtml, trackingPixel);
+      }
 
       // Send email
       await transporter.sendMail({

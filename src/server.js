@@ -61,7 +61,15 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`\u2705 Server running on port ${PORT}`);
-  console.log(`\u2705 Tracking pixel: ${process.env.APP_URL || `http://localhost:${PORT}`}/track/open/:id`);
-  console.log(`\u2705 Link tracker: ${process.env.APP_URL || `http://localhost:${PORT}`}/track/click/:code`);
+  const baseUrl = process.env.APP_URL || `http://localhost:${PORT}`;
+  // console.log(`✅ Server running on port ${PORT}`);
+  // console.log(`✅ Tracking pixel endpoint: ${baseUrl}/track/open/:id`);
+  // console.log(`✅ Link tracker endpoint: ${baseUrl}/track/click/:code`);
+  // if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+  //   console.log(`\n⚠️  IMPORTANT NOTE FOR EMAIL OPEN TRACKING:`);
+  //   console.log(`    APP_URL is currently '${baseUrl}'.`);
+  //   console.log(`    External email clients (Gmail, Outlook, Yahoo) cannot access 'localhost'.`);
+  //   console.log(`    To test email open tracking from real email clients, expose your server using ngrok`);
+  //   console.log(`    (e.g., 'npx ngrok http ${PORT}') and set APP_URL in .env to your ngrok URL.\n`);
+  // }
 });

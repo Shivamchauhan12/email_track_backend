@@ -12,12 +12,20 @@ const trackOpen = async (req, res) => {
     const { id } = req.params;
     const { ip, userAgent } = getClientInfo(req);
 
+    console.log(`\ud83d\udce9 [Tracking] Email open request received for tracking ID: ${id}`);
+
     const campaignContact = await prisma.campaignContact.findUnique({
       where: { trackingId: id }
     });
 
     if (!campaignContact) {
-      return res.status(404).end();
+      console.warn(`\u26a0\ufe0f [Tracking] Tracking ID not found: ${id}`);
+      res.writeHead(404, {
+        'Content-Type': 'image/gif',
+        'Content-Length': TRANSPARENT_GIF.length,
+        'Cache-Control': 'no-store, no-cache, must-revalidate, private, proxy-revalidate'
+      });
+      return res.end(TRANSPARENT_GIF);
     }
 
     // Record open event
@@ -38,15 +46,24 @@ const trackOpen = async (req, res) => {
       })
     ]);
 
+    console.log(`\u2705 [Tracking] Open recorded for contact ID: ${campaignContact.contactId}`);
+
     // Return transparent pixel
-    res.setHeader('Content-Type', 'image/gif');
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    res.send(TRANSPARENT_GIF);
+    res.writeHead(200, {
+      'Content-Type': 'image/gif',
+      'Content-Length': TRANSPARENT_GIF.length,
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+    res.end(TRANSPARENT_GIF);
   } catch (error) {
     console.error('Track open error:', error);
-    res.status(500).end();
+    res.writeHead(500, {
+      'Content-Type': 'image/gif',
+      'Content-Length': TRANSPARENT_GIF.length
+    });
+    res.end(TRANSPARENT_GIF);
   }
 };
 
@@ -54,6 +71,8 @@ const trackClick = async (req, res) => {
   try {
     const { code } = req.params;
     const { ip, userAgent } = getClientInfo(req);
+
+    console.log(`\ud83d\uddb1\ufe0f [Tracking] Link click request received for code: ${code}`);
 
     const link = await prisma.link.findUnique({
       where: { trackingCode: code }
@@ -71,7 +90,7 @@ const trackClick = async (req, res) => {
       });
 
       if (campaignContact) {
-        await prisma.$transaction([
+        const transactions = [
           prisma.linkClick.upsert({
             where: {
               linkId_campaignContactId: {
@@ -91,7 +110,22 @@ const trackClick = async (req, res) => {
             where: { id: link.id },
             data: { clickCount: { increment: 1 } }
           })
-        ]);
+        ];
+
+        // Also record email open if it wasn't recorded yet (since link was clicked)
+        if (!campaignContact.openedAt) {
+          transactions.push(
+            prisma.emailOpen.create({
+              data: { campaignContactId: campaignContact.id, ipAddress: ip, userAgent }
+            }),
+            prisma.campaignContact.update({
+              where: { id: campaignContact.id },
+              data: { openedAt: new Date(), openCount: { increment: 1 } }
+            })
+          );
+        }
+
+        await prisma.$transaction(transactions);
       }
     } else {
       // Anonymous click - just increment counter

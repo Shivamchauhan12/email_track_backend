@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const prisma = require('../config/database');
 const emailService = require('../services/emailService');
 
@@ -145,7 +146,8 @@ const createCampaign = async (req, res) => {
         await tx.link.createMany({
           data: links.map(url => ({
             campaignId: newCampaign.id,
-            originalUrl: url
+            originalUrl: url,
+            trackingCode: crypto.randomUUID()
           }))
         });
       }
@@ -155,7 +157,8 @@ const createCampaign = async (req, res) => {
         await tx.campaignContact.createMany({
           data: contactIds.map(contactId => ({
             campaignId: newCampaign.id,
-            contactId: parseInt(contactId)
+            contactId: parseInt(contactId),
+            trackingId: crypto.randomUUID()
           })),
           skipDuplicates: true
         });
@@ -198,7 +201,8 @@ const updateCampaign = async (req, res) => {
           await tx.link.createMany({
             data: links.map(url => ({
               campaignId: parseInt(id),
-              originalUrl: url
+              originalUrl: url,
+              trackingCode: crypto.randomUUID()
             }))
           });
         }
@@ -211,7 +215,8 @@ const updateCampaign = async (req, res) => {
           await tx.campaignContact.createMany({
             data: contactIds.map(contactId => ({
               campaignId: parseInt(id),
-              contactId: parseInt(contactId)
+              contactId: parseInt(contactId),
+              trackingId: crypto.randomUUID()
             }))
           });
         }
