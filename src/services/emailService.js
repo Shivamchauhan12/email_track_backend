@@ -2,17 +2,38 @@ const nodemailer = require('nodemailer');
 const prisma = require('../config/database');
 const { generateTrackingPixel, injectTrackingPixel, replaceLinksWithTracking } = require('../utils/helpers');
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT) || 587,
-  secure: process.env.SMTP_SECURE === 'true',
+const port = parseInt(process.env.SMTP_PORT) || 587;
+const isSecure = process.env.SMTP_SECURE === 'true' || port === 465;
+
+const transporterOptions = {
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: port,
+  secure: isSecure,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
   },
+  tls: {
+    rejectUnauthorized: false
+  },
+  connectionTimeout: 15000,
+  greetingTimeout: 15000,
+  socketTimeout: 20000,
   pool: true,
-  maxConnections: 5,
+  maxConnections: 3,
   maxMessages: 100
+};
+
+const transporter = nodemailer.createTransport(transporterOptions);
+
+// Verify SMTP connection on startup
+transporter.verify((error, success) => {
+  if (error) {
+    console.error('❌ [EmailService] SMTP Connection Error:', error.message);
+    console.error('👉 Make sure SMTP_USER and SMTP_PASS are set in Render Environment Variables and an App Password is used for Gmail!');
+  } else {
+    console.log('✅ [EmailService] SMTP server connection verified successfully.');
+  }
 });
 
 const stripHtml = (html) => {
@@ -58,9 +79,13 @@ const sendCampaignEmails = async (campaign) => {
         ? campaign.bodyText
         : stripHtml(personalizedHtml);
 
+      const senderEmail = process.env.SMTP_USER || campaign.fromEmail;
+      const senderName = campaign.fromName || campaign.fromEmail;
+
       // Send email with anti-spam headers
       await transporter.sendMail({
-        from: `"${campaign.fromName || campaign.fromEmail}" <${campaign.fromEmail}>`,
+        from: `"${senderName}" <${senderEmail}>`,
+        replyTo: campaign.fromEmail,
         to: cc.contact.email,
         subject: campaign.subject,
         html: personalizedHtml,
@@ -120,8 +145,12 @@ const sendTestEmail = async (to, campaign) => {
   // Don't add tracking pixel for test emails
   testHtml = replaceLinksWithTracking(testHtml, campaign.links, baseUrl);
 
+  const senderEmail = process.env.SMTP_USER || campaign.fromEmail;
+  const senderName = campaign.fromName || campaign.fromEmail;
+
   await transporter.sendMail({
-    from: `"${campaign.fromName || campaign.fromEmail}" <${campaign.fromEmail}>`,
+    from: `"${senderName}" <${senderEmail}>`,
+    replyTo: campaign.fromEmail,
     to,
     subject: `[TEST] ${campaign.subject}`,
     html: testHtml,

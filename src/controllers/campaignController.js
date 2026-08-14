@@ -297,7 +297,9 @@ const sendCampaign = async (req, res) => {
     });
 
     // Send emails asynchronously
-    emailService.sendCampaignEmails(campaign);
+    emailService.sendCampaignEmails(campaign).catch(err => {
+      console.error('❌ [CampaignController] Async sending error:', err);
+    });
 
     res.json({ message: 'Campaign sending started', totalRecipients: campaign.contacts.length });
   } catch (error) {
