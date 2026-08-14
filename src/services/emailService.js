@@ -1,159 +1,371 @@
 const nodemailer = require('nodemailer');
 const prisma = require('../config/database');
-const { generateTrackingPixel, injectTrackingPixel, replaceLinksWithTracking } = require('../utils/helpers');
+const {
+  generateTrackingPixel,
+  injectTrackingPixel,
+  replaceLinksWithTracking
+} = require('../utils/helpers');
 
-// Force Port 465 Direct SSL for cloud hosting platforms like Render (which block Port 587 STARTTLS)
-const smtpPort = process.env.SMTP_PORT === '587' ? 465 : (parseInt(process.env.SMTP_PORT) || 465);
-const isSecurePort = smtpPort === 465 || process.env.SMTP_SECURE === 'true';
+// ============================================================
+// SMTP CONFIGURATION
+// ============================================================
+
+const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+const smtpPort = parseInt(process.env.SMTP_PORT, 10) || 587;
+
+// Port 465 = direct SSL
+// Port 587 = STARTTLS
+const isSecure = smtpPort === 465;
 
 const transporterOptions = {
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  host: smtpHost,
   port: smtpPort,
-  secure: isSecurePort,
+  secure: isSecure,
+
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
   },
-  tls: {
-    rejectUnauthorized: false
-  },
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 15000
+
+  // Timeouts for cloud hosting
+  connectionTimeout: 30000,
+  greetingTimeout: 30000,
+  socketTimeout: 30000
 };
+
+console.log('📧 [EmailService] SMTP Configuration:', {
+  host: smtpHost,
+  port: smtpPort,
+  secure: isSecure,
+  user: process.env.SMTP_USER
+});
 
 const transporter = nodemailer.createTransport(transporterOptions);
 
-// Verify SMTP connection on startup
+// ============================================================
+// VERIFY SMTP CONNECTION
+// ============================================================
+
 transporter.verify((error, success) => {
   if (error) {
-    console.error('❌ [EmailService] SMTP Connection Error on port', smtpPort, ':', error);
-    console.error('👉 Make sure SMTP_USER and SMTP_PASS are set in Render Environment Variables and an App Password is used for Gmail!');
+    console.error('❌ [EmailService] SMTP Connection Error');
+    console.error('Host:', smtpHost);
+    console.error('Port:', smtpPort);
+    console.error('Secure:', isSecure);
+    console.error('Error:', error);
+
+    console.error(
+      '👉 Check SMTP_HOST, SMTP_PORT, SMTP_USER and SMTP_PASS in Render Environment Variables.'
+    );
+
+    console.error(
+      '👉 For Gmail, SMTP_PASS must be a Google App Password, not your normal Gmail password.'
+    );
   } else {
-    console.log(`✅ [EmailService] SMTP server verified on host ${transporterOptions.host}:${smtpPort} (SSL: ${isSecurePort}).`);
+    console.log(
+      `✅ [EmailService] SMTP server verified: ${smtpHost}:${smtpPort} (secure: ${isSecure})`
+    );
   }
 });
 
+// ============================================================
+// HTML → PLAIN TEXT
+// ============================================================
+
 const stripHtml = (html) => {
   if (!html) return '';
-  return html.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+
+  return html
+    .replace(/<[^>]*>?/gm, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 };
+
+// ============================================================
+// SEND CAMPAIGN EMAILS
+// ============================================================
 
 const sendCampaignEmails = async (campaign) => {
   const baseUrl = process.env.APP_URL || 'http://localhost:5000';
-  if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
-    console.warn('⚠️ [Tracking Warning] APP_URL is set to localhost. External email clients (e.g. Gmail) cannot fetch images from localhost. Set APP_URL in .env to a public URL (e.g., ngrok or domain) for tracking to work!');
+
+  if (
+    baseUrl.includes('localhost') ||
+    baseUrl.includes('127.0.0.1')
+  ) {
+    console.warn(
+      '⚠️ [Tracking Warning] APP_URL is set to localhost.'
+    );
+
+    console.warn(
+      'External email clients cannot access localhost for tracking.'
+    );
+
+    console.warn(
+      'Set APP_URL to your public Render URL.'
+    );
   }
+
   let sentCount = 0;
   let errorCount = 0;
+
   const totalContacts = campaign.contacts.length;
 
-  console.log(`🚀 [EmailService] Starting campaign send for ${totalContacts} contacts with anti-spam throttled intervals...`);
+  console.log(
+    `🚀 [EmailService] Starting campaign for ${totalContacts} contacts`
+  );
 
   for (let i = 0; i < totalContacts; i++) {
     const cc = campaign.contacts[i];
+
     try {
-      // Generate personalized HTML with tracking
+      // ========================================================
+      // PERSONALIZE HTML
+      // ========================================================
+
       let personalizedHtml = campaign.bodyHtml || '';
 
-      // Replace personalization tags
       personalizedHtml = personalizedHtml
-        .replace(/{{firstName}}/g, cc.contact.firstName || '')
-        .replace(/{{lastName}}/g, cc.contact.lastName || '')
-        .replace(/{{email}}/g, cc.contact.email)
-        .replace(/{{company}}/g, cc.contact.company || '');
+        .replace(
+          /{{firstName}}/g,
+          cc.contact.firstName || ''
+        )
+        .replace(
+          /{{lastName}}/g,
+          cc.contact.lastName || ''
+        )
+        .replace(
+          /{{email}}/g,
+          cc.contact.email || ''
+        )
+        .replace(
+          /{{company}}/g,
+          cc.contact.company || ''
+        );
 
-      // Replace links with tracking URLs (passing trackingId so clicks can link to contact)
-      personalizedHtml = replaceLinksWithTracking(personalizedHtml, campaign.links, baseUrl, cc.trackingId);
+      // ========================================================
+      // TRACK LINKS
+      // ========================================================
 
-      // Inject tracking pixel before </body> or </html> if present
+      personalizedHtml = replaceLinksWithTracking(
+        personalizedHtml,
+        campaign.links,
+        baseUrl,
+        cc.trackingId
+      );
+
+      // ========================================================
+      // TRACKING PIXEL
+      // ========================================================
+
       if (cc.trackingId) {
-        const trackingPixel = generateTrackingPixel(cc.trackingId, baseUrl);
-        personalizedHtml = injectTrackingPixel(personalizedHtml, trackingPixel);
+        const trackingPixel = generateTrackingPixel(
+          cc.trackingId,
+          baseUrl
+        );
+
+        personalizedHtml = injectTrackingPixel(
+          personalizedHtml,
+          trackingPixel
+        );
       }
 
-      // Plain text version (essential for anti-spam deliverability)
-      const plainTextContent = campaign.bodyText && campaign.bodyText.trim()
-        ? campaign.bodyText
-        : stripHtml(personalizedHtml);
+      // ========================================================
+      // PLAIN TEXT VERSION
+      // ========================================================
 
-      const senderEmail = process.env.SMTP_USER || campaign.fromEmail;
-      const senderName = campaign.fromName || campaign.fromEmail;
+      const plainTextContent =
+        campaign.bodyText &&
+        campaign.bodyText.trim()
+          ? campaign.bodyText
+          : stripHtml(personalizedHtml);
 
-      // Send email with anti-spam headers
+      // ========================================================
+      // SENDER
+      // ========================================================
+
+      const senderEmail =
+        process.env.SMTP_USER || campaign.fromEmail;
+
+      const senderName =
+        campaign.fromName || campaign.fromEmail;
+
+      // ========================================================
+      // SEND EMAIL
+      // ========================================================
+
       await transporter.sendMail({
         from: `"${senderName}" <${senderEmail}>`,
+
         replyTo: campaign.fromEmail,
+
         to: cc.contact.email,
+
         subject: campaign.subject,
+
         html: personalizedHtml,
+
         text: plainTextContent,
+
         headers: {
           'X-Mailer': 'EmailTracker Engine',
-          'Precedence': 'bulk'
+          Precedence: 'bulk'
         }
       });
 
-      // Update sent status
+      // ========================================================
+      // UPDATE CONTACT STATUS
+      // ========================================================
+
       await prisma.campaignContact.update({
-        where: { id: cc.id },
-        data: { sentAt: new Date() }
+        where: {
+          id: cc.id
+        },
+        data: {
+          sentAt: new Date()
+        }
       });
 
       sentCount++;
-      console.log(`✅ [EmailService] (${sentCount}/${totalContacts}) Email sent to ${cc.contact.email}`);
 
-      // Anti-spam interval delay between messages (if not last contact)
+      console.log(
+        `✅ [EmailService] (${sentCount}/${totalContacts}) Email sent to ${cc.contact.email}`
+      );
+
+      // ========================================================
+      // THROTTLING
+      // ========================================================
+
       if (i < totalContacts - 1) {
-        const baseInterval = parseInt(process.env.EMAIL_SEND_INTERVAL_MS) || 3000;
-        const randomJitter = Math.floor(Math.random() * 1500); // 0ms to 1500ms random delay
-        const delayMs = baseInterval + randomJitter;
+        const baseInterval =
+          parseInt(
+            process.env.EMAIL_SEND_INTERVAL_MS,
+            10
+          ) || 3000;
 
-        console.log(`⏳ [Anti-Spam Throttling] Waiting ${(delayMs / 1000).toFixed(1)}s before sending next email...`);
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+        const randomJitter =
+          Math.floor(Math.random() * 1500);
+
+        const delayMs =
+          baseInterval + randomJitter;
+
+        console.log(
+          `⏳ [EmailService] Waiting ${(delayMs / 1000).toFixed(
+            1
+          )}s before next email...`
+        );
+
+        await new Promise((resolve) =>
+          setTimeout(resolve, delayMs)
+        );
       }
     } catch (error) {
-      console.error(`❌ [EmailService] Failed to send to ${cc.contact.email}:`, error.message);
+      console.error(
+        `❌ [EmailService] Failed to send to ${cc.contact.email}`
+      );
+
+      console.error('Error:', error.message);
+
       errorCount++;
     }
   }
 
-  // Update campaign status
+  // ==========================================================
+  // UPDATE CAMPAIGN STATUS
+  // ==========================================================
+
   await prisma.campaign.update({
-    where: { id: campaign.id },
-    data: { 
-      status: errorCount === campaign.contacts.length ? 'DRAFT' : 'SENT',
+    where: {
+      id: campaign.id
+    },
+    data: {
+      status:
+        errorCount === campaign.contacts.length
+          ? 'DRAFT'
+          : 'SENT',
+
       sentAt: new Date()
     }
   });
 
-  console.log(`🎉 [EmailService] Campaign ${campaign.id} completed. Sent: ${sentCount}, Errors: ${errorCount}`);
+  console.log(
+    `🎉 [EmailService] Campaign ${campaign.id} completed.`
+  );
+
+  console.log(
+    `📊 Sent: ${sentCount}, Errors: ${errorCount}`
+  );
 };
 
-const sendTestEmail = async (to, campaign) => {
-  const baseUrl = process.env.APP_URL || 'http://localhost:5000';
+// ============================================================
+// SEND TEST EMAIL
+// ============================================================
 
-  let testHtml = campaign.bodyHtml;
+const sendTestEmail = async (to, campaign) => {
+  const baseUrl =
+    process.env.APP_URL || 'http://localhost:5000';
+
+  let testHtml = campaign.bodyHtml || '';
+
+  // ==========================================================
+  // PERSONALIZATION
+  // ==========================================================
+
   testHtml = testHtml
     .replace(/{{firstName}}/g, 'Test')
     .replace(/{{lastName}}/g, 'User')
     .replace(/{{email}}/g, to)
     .replace(/{{company}}/g, 'Test Company');
 
-  // Don't add tracking pixel for test emails
-  testHtml = replaceLinksWithTracking(testHtml, campaign.links, baseUrl);
+  // ==========================================================
+  // TRACK LINKS
+  // ==========================================================
 
-  const senderEmail = process.env.SMTP_USER || campaign.fromEmail;
-  const senderName = campaign.fromName || campaign.fromEmail;
+  testHtml = replaceLinksWithTracking(
+    testHtml,
+    campaign.links,
+    baseUrl
+  );
+
+  // ==========================================================
+  // SENDER
+  // ==========================================================
+
+  const senderEmail =
+    process.env.SMTP_USER || campaign.fromEmail;
+
+  const senderName =
+    campaign.fromName || campaign.fromEmail;
+
+  // ==========================================================
+  // SEND TEST EMAIL
+  // ==========================================================
 
   await transporter.sendMail({
     from: `"${senderName}" <${senderEmail}>`,
+
     replyTo: campaign.fromEmail,
+
     to,
+
     subject: `[TEST] ${campaign.subject}`,
+
     html: testHtml,
-    text: campaign.bodyText || ''
+
+    text:
+      campaign.bodyText ||
+      stripHtml(testHtml)
   });
+
+  console.log(
+    `✅ [EmailService] Test email sent to ${to}`
+  );
 };
 
-module.exports = { sendCampaignEmails, sendTestEmail };
+// ============================================================
+// EXPORT
+// ============================================================
+
+module.exports = {
+  sendCampaignEmails,
+  sendTestEmail
+};
