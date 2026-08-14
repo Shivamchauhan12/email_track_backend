@@ -2,27 +2,48 @@ const nodemailer = require('nodemailer');
 const prisma = require('../config/database');
 const { generateTrackingPixel, injectTrackingPixel, replaceLinksWithTracking } = require('../utils/helpers');
 
-const port = parseInt(process.env.SMTP_PORT) || 587;
-const isSecure = process.env.SMTP_SECURE === 'true' || port === 465;
+const isGmail = 
+  !process.env.SMTP_HOST || 
+  process.env.SMTP_HOST === 'smtp.gmail.com' || 
+  (process.env.SMTP_USER && process.env.SMTP_USER.includes('@gmail.com'));
 
-const transporterOptions = {
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: port,
-  secure: isSecure,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  },
-  tls: {
-    rejectUnauthorized: false
-  },
-  connectionTimeout: 15000,
-  greetingTimeout: 15000,
-  socketTimeout: 20000,
-  pool: true,
-  maxConnections: 3,
-  maxMessages: 100
-};
+let transporterOptions;
+
+if (isGmail) {
+  // Gmail-specific configuration: uses built-in preset to bypass port 587 STARTTLS cloud timeouts
+  transporterOptions = {
+    service: 'gmail',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    },
+    tls: {
+      rejectUnauthorized: false
+    }
+  };
+} else {
+  // Generic SMTP setup with SSL (Port 465 by default for cloud compatibility)
+  const port = parseInt(process.env.SMTP_PORT) || 465;
+  const isSecure = process.env.SMTP_SECURE !== undefined 
+    ? process.env.SMTP_SECURE === 'true' 
+    : port === 465;
+
+  transporterOptions = {
+    host: process.env.SMTP_HOST,
+    port: port,
+    secure: isSecure,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    },
+    tls: {
+      rejectUnauthorized: false
+    },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000
+  };
+}
 
 const transporter = nodemailer.createTransport(transporterOptions);
 
