@@ -21,55 +21,14 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// CORS Configuration
-const defaultOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'http://localhost:5174',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:3000'
-];
-
-const envOrigins = process.env.FRONTEND_URL
-  ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
-  : [];
-
-const rawAllowedOrigins = [...defaultOrigins, ...envOrigins];
-const allowedOrigins = new Set();
-
-rawAllowedOrigins.forEach(url => {
-  if (url) {
-    allowedOrigins.add(url);
-    allowedOrigins.add(url.replace(/\/+$/, '')); // remove trailing slash
-  }
-});
-
-const corsOptions = {
-  origin: (origin, callback) => {
-    // Allow requests with no origin (e.g. mobile apps, curl, Postman, server-to-server, email tracking pixels)
-    if (!origin) return callback(null, true);
-
-    const cleanOrigin = origin.replace(/\/+$/, '');
-
-    if (
-      process.env.FRONTEND_URL === '*' ||
-      allowedOrigins.has(cleanOrigin) ||
-      allowedOrigins.has(origin) ||
-      allowedOrigins.has('*')
-    ) {
-      return callback(null, true);
-    }
-
-    console.warn(`⚠️ [CORS Blocked] Request from origin '${origin}' not in allowed origins list.`);
-    return callback(null, false);
-  },
+// CORS Configuration (Enabled for all domains)
+app.use(cors({
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   optionsSuccessStatus: 200
-};
-
-app.use(cors(corsOptions));
+}));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
