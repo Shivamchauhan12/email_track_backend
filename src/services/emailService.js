@@ -2,58 +2,35 @@ const nodemailer = require('nodemailer');
 const prisma = require('../config/database');
 const { generateTrackingPixel, injectTrackingPixel, replaceLinksWithTracking } = require('../utils/helpers');
 
-const isGmail = 
-  !process.env.SMTP_HOST || 
-  process.env.SMTP_HOST === 'smtp.gmail.com' || 
-  (process.env.SMTP_USER && process.env.SMTP_USER.includes('@gmail.com'));
+// Force Port 465 Direct SSL for cloud hosting platforms like Render (which block Port 587 STARTTLS)
+const smtpPort = process.env.SMTP_PORT === '587' ? 465 : (parseInt(process.env.SMTP_PORT) || 465);
+const isSecurePort = smtpPort === 465 || process.env.SMTP_SECURE === 'true';
 
-let transporterOptions;
-
-if (isGmail) {
-  // Gmail-specific configuration: uses built-in preset to bypass port 587 STARTTLS cloud timeouts
-  transporterOptions = {
-    service: 'gmail',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
-    },
-    tls: {
-      rejectUnauthorized: false
-    }
-  };
-} else {
-  // Generic SMTP setup with SSL (Port 465 by default for cloud compatibility)
-  const port = parseInt(process.env.SMTP_PORT) || 465;
-  const isSecure = process.env.SMTP_SECURE !== undefined 
-    ? process.env.SMTP_SECURE === 'true' 
-    : port === 465;
-
-  transporterOptions = {
-    host: process.env.SMTP_HOST,
-    port: port,
-    secure: isSecure,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
-    },
-    tls: {
-      rejectUnauthorized: false
-    },
-    connectionTimeout: 15000,
-    greetingTimeout: 15000,
-    socketTimeout: 20000
-  };
-}
+const transporterOptions = {
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: smtpPort,
+  secure: isSecurePort,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+  },
+  tls: {
+    rejectUnauthorized: false
+  },
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 15000
+};
 
 const transporter = nodemailer.createTransport(transporterOptions);
 
 // Verify SMTP connection on startup
 transporter.verify((error, success) => {
   if (error) {
-    console.error('❌ [EmailService] SMTP Connection Error:', error.message);
+    console.error('❌ [EmailService] SMTP Connection Error on port', smtpPort, ':', error);
     console.error('👉 Make sure SMTP_USER and SMTP_PASS are set in Render Environment Variables and an App Password is used for Gmail!');
   } else {
-    console.log('✅ [EmailService] SMTP server connection verified successfully.');
+    console.log(`✅ [EmailService] SMTP server verified on host ${transporterOptions.host}:${smtpPort} (SSL: ${isSecurePort}).`);
   }
 });
 
