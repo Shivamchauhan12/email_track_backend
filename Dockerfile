@@ -2,7 +2,6 @@ FROM node:20-bookworm-slim
 
 WORKDIR /app
 
-# Install OpenSSL required by Prisma
 RUN apt-get update \
     && apt-get install -y openssl \
     && rm -rf /var/lib/apt/lists/*
@@ -19,4 +18,4 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]
+CMD ["npm", "start"]
