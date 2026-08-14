@@ -11,7 +11,7 @@ const {
 // ============================================================
 
 const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
-const smtpPort = parseInt(process.env.SMTP_PORT, 10) || 587;
+const smtpPort = parseInt(process.env.SMTP_PORT, 10) || 465; // Port 465 recommended on Cloud hosts (Render/AWS)
 
 // Port 465 = direct SSL
 // Port 587 = STARTTLS
@@ -22,14 +22,24 @@ const transporterOptions = {
   port: smtpPort,
   secure: isSecure,
 
+  // Connection Pooling for multi-email efficiency and stability
+  pool: true,
+  maxConnections: 5,
+  maxMessages: 100,
+
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
   },
 
-  // Timeouts for cloud hosting
-  connectionTimeout: 30000,
-  greetingTimeout: 30000,
+  tls: {
+    // Prevent failure on cloud proxies / certificate mismatch
+    rejectUnauthorized: false
+  },
+
+  // Optimized timeouts for cloud hosting (Render, AWS, DigitalOcean)
+  connectionTimeout: 15000,
+  greetingTimeout: 15000,
   socketTimeout: 30000
 };
 
@@ -37,7 +47,8 @@ console.log('📧 [EmailService] SMTP Configuration:', {
   host: smtpHost,
   port: smtpPort,
   secure: isSecure,
-  user: process.env.SMTP_USER
+  user: process.env.SMTP_USER,
+  pool: true
 });
 
 const transporter = nodemailer.createTransport(transporterOptions);
@@ -55,7 +66,11 @@ transporter.verify((error, success) => {
     console.error('Error:', error);
 
     console.error(
-      '👉 Check SMTP_HOST, SMTP_PORT, SMTP_USER and SMTP_PASS in Render Environment Variables.'
+      '👉 Check SMTP_HOST, SMTP_PORT, SMTP_USER and SMTP_PASS in your environment variables.'
+    );
+
+    console.error(
+      '👉 If hosted on Render / AWS / DigitalOcean, Port 587 is frequently BLOCKED by the host. Set SMTP_PORT=465 in environment variables.'
     );
 
     console.error(
@@ -63,10 +78,38 @@ transporter.verify((error, success) => {
     );
   } else {
     console.log(
-      `✅ [EmailService] SMTP server verified: ${smtpHost}:${smtpPort} (secure: ${isSecure})`
+      `✅ [EmailService] SMTP server verified: ${smtpHost}:${smtpPort} (secure: ${isSecure}, pool: true)`
     );
   }
 });
+
+// ============================================================
+// HELPER: SEND MAIL WITH RETRY
+// ============================================================
+
+const sendMailWithRetry = async (mailOptions, maxRetries = 3) => {
+  let lastError;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const info = await transporter.sendMail(mailOptions);
+      return info;
+    } catch (error) {
+      lastError = error;
+      console.warn(
+        `⚠️ [EmailService] Attempt ${attempt}/${maxRetries} failed for ${mailOptions.to}: ${error.message}`
+      );
+
+      if (attempt < maxRetries) {
+        const backoffMs = attempt * 2000;
+        console.log(
+          `⏳ [EmailService] Retrying send to ${mailOptions.to} in ${backoffMs / 1000}s...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      }
+    }
+  }
+  throw lastError;
+};
 
 // ============================================================
 // HTML → PLAIN TEXT
@@ -190,10 +233,10 @@ const sendCampaignEmails = async (campaign) => {
         campaign.fromName || campaign.fromEmail;
 
       // ========================================================
-      // SEND EMAIL
+      // SEND EMAIL WITH RETRY
       // ========================================================
 
-      await transporter.sendMail({
+      await sendMailWithRetry({
         from: `"${senderName}" <${senderEmail}>`,
 
         replyTo: campaign.fromEmail,
@@ -264,6 +307,15 @@ const sendCampaignEmails = async (campaign) => {
       );
 
       console.error('Error:', error.message);
+
+      if (
+        error.message &&
+        (error.message.includes('timeout') || error.code === 'ETIMEDOUT')
+      ) {
+        console.error(
+          '👉 TIP: Live hostings (like Render/AWS) frequently block port 587. Change SMTP_PORT=465 in your environment variables.'
+        );
+      }
 
       errorCount++;
     }
@@ -337,10 +389,10 @@ const sendTestEmail = async (to, campaign) => {
     campaign.fromName || campaign.fromEmail;
 
   // ==========================================================
-  // SEND TEST EMAIL
+  // SEND TEST EMAIL WITH RETRY
   // ==========================================================
 
-  await transporter.sendMail({
+  await sendMailWithRetry({
     from: `"${senderName}" <${senderEmail}>`,
 
     replyTo: campaign.fromEmail,
