@@ -35,6 +35,17 @@ model Campaign {
   links       Link[]
 }
 
+model Template {
+  id          Int      @id @default(autoincrement())
+  name        String
+  subject     String?
+  bodyHtml    String   @db.Text
+  category    String?  @default("General")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  userId      Int?
+}
+
 model Contact {
   id        Int               @id @default(autoincrement())
   email     String

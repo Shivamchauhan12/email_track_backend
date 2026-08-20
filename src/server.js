@@ -11,6 +11,7 @@ const campaignRoutes = require('./routes/campaignRoutes');
 const contactRoutes = require('./routes/contactRoutes');
 const trackingRoutes = require('./routes/trackingRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
+const templateRoutes = require('./routes/templateRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -53,6 +54,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/campaigns', campaignRoutes);
 app.use('/api/contacts', contactRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/templates', templateRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
