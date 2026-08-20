@@ -227,7 +227,7 @@ const sendCampaignEmails = async (campaign) => {
       // ========================================================
 
       const senderEmail =
-        process.env.SMTP_USER || campaign.fromEmail;
+        campaign.fromEmail || process.env.SMTP_USER;
 
       const senderName =
         campaign.fromName || campaign.fromEmail;
@@ -383,7 +383,7 @@ const sendTestEmail = async (to, campaign) => {
   // ==========================================================
 
   const senderEmail =
-    process.env.SMTP_USER || campaign.fromEmail;
+    campaign.fromEmail || process.env.SMTP_USER;
 
   const senderName =
     campaign.fromName || campaign.fromEmail;
@@ -391,7 +391,8 @@ const sendTestEmail = async (to, campaign) => {
   // ==========================================================
   // SEND TEST EMAIL WITH RETRY
   // ==========================================================
-
+try {
+  
   await sendMailWithRetry({
     from: `"${senderName}" <${senderEmail}>`,
 
@@ -411,6 +412,9 @@ const sendTestEmail = async (to, campaign) => {
   console.log(
     `✅ [EmailService] Test email sent to ${to}`
   );
+} catch (error) {
+  console.log(error);
+}
 };
 
 // ============================================================
