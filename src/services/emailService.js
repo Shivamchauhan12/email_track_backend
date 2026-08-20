@@ -227,7 +227,7 @@ const sendCampaignEmails = async (campaign) => {
       // ========================================================
 
       const senderEmail =
-        campaign.fromEmail || process.env.SMTP_USER;
+        process.env.SMTP_USER || campaign.fromEmail;
 
       const senderName =
         campaign.fromName || campaign.fromEmail;
@@ -383,7 +383,7 @@ const sendTestEmail = async (to, campaign) => {
   // ==========================================================
 
   const senderEmail =
-    campaign.fromEmail || process.env.SMTP_USER;
+    process.env.SMTP_USER || campaign.fromEmail;
 
   const senderName =
     campaign.fromName || campaign.fromEmail;
